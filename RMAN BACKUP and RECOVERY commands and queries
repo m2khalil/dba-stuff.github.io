@@ -1,0 +1,139 @@
+-----------------------------------------------------------------------
+Backup and recovery support commands and queries
+-----------------------------------------------------------------------
+
+Getting sp_file/Control file handle from rmman / source server / rman catalog
+
+a) RMAN : 
+--spfile :
+list backup of spfile completed between "to_date('30-DEC-2022 00:00:00','DD-MON-YYYY HH24:MI:SS')" and "to_date('30-DEC-2022 23:59:59','DD-MON-YYYY HH24:MI:SS')";
+list backup of spfile completed after 'sysdate-5';   
+
+--from source server
+SELECT BP.DEVICE_TYPE, BP.HANDLE, BP.TAG,BP.STATUS,BP.COMPLETION_TIME
+FROM V$BACKUP_PIECE BP, V$BACKUP_SPFILE BS
+WHERE BP.SET_COUNT=BS.SET_COUNT
+AND TO_CHAR(BP.COMPLETION_TIME,'DD-MON-YYYY')='30-DEC-2022'
+
+--from Rman Recovery Catalog
+SELECT BP.DEVICE_TYPE, BP.HANDLE, BP.TAG,BP.STATUS,BP.COMPLETION_TIME
+FROM RC_BACKUP_PIECE BP, RC_BACKUP_SPFILE BS
+WHERE BP.SET_COUNT=BS.SET_COUNT
+AND TO_CHAR(BP.COMPLETION_TIME,'DD-MON-YYYY')='30-DEC-2022'
+AND BP.DB_ID =1111111111
+
+
+--control file:
+list backup of controlfile completed between  "to_date('30-DEC-2022 00:00:00','DD-MON-YYYY HH24:MI:SS')" and "to_date('30-DEC-2022 23:59:59','DD-MON-YYYY HH24:MI:SS')";
+list backup of controlfile completed after 'sysdate-5';  
+
+--from source server
+SELECT p.start_time, p.handle, p.tag, s.backup_type, 
+       s.incremental_level, controlfile_included
+FROM   v$backup_piece p, v$backup_set s
+WHERE  p.set_stamp = s.set_stamp
+AND    p.set_count = s.set_count
+AND TO_CHAR(P.COMPLETION_TIME,'DD-MON-YYYY')='30-DEC-2022'
+AND s.backup_type = 'D'
+ORDER BY tag;
+
+
+--from Rman Recovery Catalog
+SELECT p.start_time, p.handle, p.tag, s.backup_type, 
+       s.incremental_level, controlfile_included
+FROM   rc_backup_piece p, rc_backup_set s
+WHERE  p.set_stamp = s.set_stamp
+AND    p.set_count = s.set_count
+AND TO_CHAR(P.COMPLETION_TIME,'DD-MON-YYYY')='30-DEC-2022'
+AND s.backup_type = 'D'
+ORDER BY tag;
+
+
+------------------------------------------------------------------------------
+---creating rman log file, use tee command
+------------------------------------------------------------------------------
+rman | tee /home/oracle/my_restore/my_restore_scripts_Q42022/my_ctl_restore_03Jan2023.log
+RMAN> connect target /
+RMAN> @/home/oracle/my_restore/my_restore_scripts_Q42022/my_cfile_restore.rman
+
+
+
+
+-------------------------------------------------------------------------------
+---checking progress of rman backup/restore
+-------------------------------------------------------------------------------
+
+SELECT SID, SERIAL#, CONTEXT, SOFAR, TOTALWORK, ROUND(SOFAR/TOTALWORK*100,2) "%_COMPLETE"
+FROM V$SESSION_LONGOPS 
+WHERE OPNAME LIKE 'RMAN%'  AND OPNAME NOT LIKE '%aggregate%'
+AND TOTALWORK != 0  AND SOFAR <> TOTALWORK
+
+
+----------------------------------------------------------------------------
+---changing log file location
+----------------------------------------------------------------------------
+SQL> select member from v$logfile;
+
+set linesize 120;
+col newlogfilepath format a120;
+select 'alter database rename file ' || '''' || member || ''' to ''/restore/my_RESTORE/' ||
+substr(member, length(member) -  (instr(reverse(member),'/')-2)) || ''';' newpath  from V$logfile;
+
+
+
+-----------------------------------------------------------------------------
+check the syntax of generated rman script
+-----------------------------------------------------------------------------
+rman checksyntax @/restore/my_RESTORE/rman_mydb_q2_2020.rman
+it must be without any error
+
+
+-------------------------------------------------------------------------------
+fixing temptablespace files issue when restoring database in different location
+-------------------------------------------------------------------------------
+
+Select tablespace_name from dba_tablespaces where contents='TEMPORARY';
+
+set linesize 120
+col name format a55;
+col status format a10;
+select name, status from v$tempfile;
+
+
+select file_name from dba_temp_files;
+
+
+Adding new tempfiles in the existing TS
+
+alter tablespace temp02 add tempfile '/restore/my_RESTORE/temp02.dbf' size 7000m;
+alter tablespace temp01 add tempfile '/restore/my_RESTORE/temp01.dbf' size 7000m;
+
+
+Now drop the existing files (control file is showing the paths as of production database structure)
+get all names by the following the command and execute them
+
+SQL> select 'alter database tempfile ''' || name || ''' offline;' from v$tempfile where name like '/d%'; 
+
+
+Now drop the offline tempfiles from the database.
+select 'alter database tempfile ''' || name || ''' drop including datafiles;' from v$tempfile  where status ='OFFLINE';
+
+
+
+----------------------------------------------------------------------------
+connecting to recovery catalog 
+----------------------------------------------------------------------------
+RMAN> connect target /
+
+connected to target database: mydb (DBID=1111111)
+
+RMAN> connect catalog my_rman@rmandb
+recovery catalog database Password:
+connected to recovery catalog database
+
+
+--------------------------------------------------------------------------
+Get schema report, this is good to see if all the files are on their required path, especially for temp files. 
+--------------------------------------------------------------------------
+
+RMAN>  report schema;
