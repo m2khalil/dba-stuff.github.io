@@ -1,0 +1,349 @@
+====================== Health Check Daily, Weekly ========================
+
+-Check free space on disk
+$ df -k
+
+
+--control whether database Listener is running
+$ lsnrctl status
+
+
+--control whether database is running
+$ srvctl status database -d racdb
+
+$ sqlplus / as sysdba
+
+SQL> select name,open_mode from v$database;
+
+--pdbs
+SQL> select name,open_mode from v$pdbs;
+
+--for rac environment
+SQL> select inst_id,name,open_mode from gv$database;
+
+
+--Check the alert log for an error 
+
+--for linux
+$ cd /u01/app/oracle/diag/rdbms/racdb/racdb1/trace
+$ vim alert_racdb1.log
+--Then look for error by '/ORA-'
+
+$ grep -c 'ORA-' alert_racdb1.log
+
+--for windows
+C:\APP\ORA_C\VIRTUAL\diag\rdbms\orcl\orcl\trace\orcl_ora_15920.trc
+
+--you can see location of trace file by
+SQL> select * from v$diag_info;
+
+
+--Check free Space in the tablespace
+SQL> select tablespace_name, sum(bytes)/1024/1024 free_MB 
+from dba_free_space
+group by tablespace_name;
+
+
+--Check any session blocking the other session
+SQL> select l.session_id,o.object_name,l.oracle_username,l.os_user_name 
+from v$locked_object l, dba_objects o
+where o.object_id = l.object_id;
+
+--for rac environment
+SQL> column object_name format a15
+SQL> column oracle_username format a10
+SQL> column os_user_name format a10
+
+SQL> select l.session_id,o.object_name,l.oracle_username,l.os_user_name 
+from gv$locked_object l, dba_objects o
+where o.object_id = l.object_id;
+
+
+--Check is there any dbms jobs running & check the status of the same
+SQL> select * from dba_jobs;
+
+SQL> select * from dba_jobs_running;
+
+
+--Check whether backups are completed
+$ rman target /
+
+RMAN> LIST BACKUP SUMMARY;
+
+==========================================================================
+
+
+1.Check the database size & compare it previous size to find growth speed of the database
+
+--Check the database size physical consume on disk.
+SQL> select sum(bytes)/1024/1024 size_in_mb from dba_data_files;
+Result: 
+
+--Check the total space used by data.
+SQL> select sum(bytes)/1024/1024 size_in_mb from dba_segments;
+Result: 
+
+2.Check unused Indexes
+
+SQL> select * from dba_index_usage;
+
+
+3.Check the tables having FK but there is no Index
+
+SQL> SELECT t.table_name,
+       c.constraint_name,
+       c.table_name table2,
+       acc.column_name
+FROM   dba_constraints t,
+       dba_constraints c,
+       dba_cons_columns acc
+WHERE  c.r_constraint_name = t.constraint_name
+AND    c.table_name        = acc.table_name
+AND    c.constraint_name   = acc.constraint_name
+--AND    c.owner = 'UTEST'
+AND    NOT EXISTS (SELECT '1' 
+                   FROM  dba_ind_columns aid
+                   WHERE aid.table_name  = acc.table_name
+                   AND   aid.column_name = acc.column_name)
+ORDER BY c.table_name;
+
+
+4.Check invalid objects of the database
+
+SQL> SELECT owner, object_type, object_name
+FROM dba_objects
+WHERE status = 'INVALID';
+
+
+
+5.Check open cursor not reaching to the max limit
+
+SQL> SELECT  max(a.value) as highest_open_cur, 
+	p.value as max_open_cur 
+FROM v$sesstat a,
+     v$statname b, 
+     v$parameter p 
+WHERE  a.statistic# = b.statistic#  
+and b.name = 'opened cursors current' 
+and p.name= 'open_cursors' 
+group by p.value;
+
+
+
+6.Check I/O of each data file
+
+SQL> COLUMN "File Name" FORMAT A50
+ 
+SQL> SELECT Substr(d.name,1,50) "File Name",
+       f.phyblkrd "Blocks Read",
+       f.phyblkwrt "Blocks Writen",
+       f.phyblkrd + f.phyblkwrt "Total I/O"
+FROM   v$filestat f,
+       v$datafile d
+WHERE  d.file# = f.file#
+ORDER BY f.phyblkrd + f.phyblkwrt DESC;
+
+
+7.Check the size of tables & check weather it need to partition or not
+
+SQL> select segment_name,sum(bytes)/1024/1024 MB
+from dba_segments
+where segment_type='TABLE' --and owner='UTEST'
+group by segment_name
+order by 2 desc;
+
+
+====================================================================
+
+
+
+1.Check active sessions
+
+SQL> SET LINESIZE 500
+SET PAGESIZE 1000
+
+SQL> COLUMN username FORMAT A30
+COLUMN osuser FORMAT A20
+COLUMN spid FORMAT A10
+COLUMN service_name FORMAT A15
+COLUMN module FORMAT A45
+COLUMN machine FORMAT A30
+COLUMN logon_time FORMAT A20
+
+SQL> SELECT NVL(s.username, '(oracle)') AS username,
+       s.osuser,
+       s.sid,
+       s.serial#,
+       p.spid,
+       s.lockwait,
+       s.status,
+       s.module,
+       s.machine,
+       s.program,
+       TO_CHAR(s.logon_Time,'DD-MON-YYYY HH24:MI:SS') AS logon_time,
+       s.last_call_et AS last_call_et_secs
+FROM   v$session s,
+       v$process p
+WHERE  s.paddr  = p.addr
+AND    s.status = 'ACTIVE'
+ORDER BY s.username, s.osuser;
+
+
+2. Check long operations
+
+SQL> COLUMN sid FORMAT 999
+COLUMN serial# FORMAT 9999999
+COLUMN machine FORMAT A30
+COLUMN progress_pct FORMAT 99999999.00
+COLUMN elapsed FORMAT A10
+COLUMN remaining FORMAT A10
+
+SQL> SELECT s.sid,
+       s.serial#,
+       s.machine,
+       ROUND(sl.elapsed_seconds/60) || ':' || MOD(sl.elapsed_seconds,60) elapsed,
+       ROUND(sl.time_remaining/60) || ':' || MOD(sl.time_remaining,60) remaining,
+       ROUND(sl.sofar/sl.totalwork*100, 2) progress_pct
+FROM   v$session s,
+       v$session_longops sl
+WHERE  s.sid     = sl.sid
+AND    s.serial# = sl.serial#;
+
+
+3.Check the number of log switch per hour 
+
+SQL> SET PAGESIZE 90
+SET LINESIZE 150
+
+SQL> set heading on
+column "00:00" format 9999
+column "01:00" format 9999
+column "02:00" format 9999
+column "03:00" format 9999
+column "04:00" format 9999
+column "05:00" format 9999
+column "06:00" format 9999
+column "07:00" format 9999
+column "08:00" format 9999
+column "09:00" format 9999
+column "10:00" format 9999
+column "11:00" format 9999
+column "12:00" format 9999
+column "13:00" format 9999
+column "14:00" format 9999
+column "15:00" format 9999
+column "16:00" format 9999
+column "17:00" format 9999
+column "18:00" format 9999
+column "19:00" format 9999
+column "20:00" format 9999
+column "21:00" format 9999
+column "22:00" format 9999
+column "23:00" format 9999
+
+SQL> SELECT * FROM (
+SELECT * FROM (
+SELECT TO_CHAR(FIRST_TIME, 'DD/MM') AS "DAY"
+/*, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '00', 1, 0), '99')) "00:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '01', 1, 0), '99')) "01:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '02', 1, 0), '99')) "02:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '03', 1, 0), '99')) "03:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '04', 1, 0), '99')) "04:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '05', 1, 0), '99')) "05:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '06', 1, 0), '99')) "06:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '07', 1, 0), '99')) "07:00"*/
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '08', 1, 0), '99')) "08:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '09', 1, 0), '99')) "09:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '10', 1, 0), '99')) "10:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '11', 1, 0), '99')) "11:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '12', 1, 0), '99')) "12:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '13', 1, 0), '99')) "13:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '14', 1, 0), '99')) "14:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '15', 1, 0), '99')) "15:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '16', 1, 0), '99')) "16:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '17', 1, 0), '99')) "17:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '18', 1, 0), '99')) "18:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '19', 1, 0), '99')) "19:00"
+/*, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '20', 1, 0), '99')) "20:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '21', 1, 0), '99')) "21:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '22', 1, 0), '99')) "22:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '23', 1, 0), '99')) "23:00"*/
+    FROM V$LOG_HISTORY
+       WHERE extract(year FROM FIRST_TIME) = extract(year FROM sysdate)
+          GROUP BY TO_CHAR(FIRST_TIME, 'DD/MM')
+  ) ORDER BY TO_DATE(extract(year FROM sysdate) || DAY, 'YYYY DD/MM') DESC
+  ) WHERE ROWNUM <8;
+
+
+4.Check predicted I/O requirement for the default buffer pool for various cache sizes
+
+SQL> COLUMN size_for_estimate FORMAT 999,999,999,999 heading 'Cache Size (MB)'
+COLUMN buffers_for_estimate FORMAT 999,999,999 heading 'Buffers'
+COLUMN estd_physical_read_factor FORMAT 999.90 heading 'Estd Phys|Read Factor'
+COLUMN estd_physical_reads FORMAT 999,999,999 heading 'Estd Phys| Reads'
+
+SQL> SELECT size_for_estimate, buffers_for_estimate, estd_physical_read_factor,
+       estd_physical_reads
+  FROM V$DB_CACHE_ADVICE
+ WHERE name = 'DEFAULT'
+   AND block_size = (SELECT value FROM V$PARAMETER WHERE name = 'db_block_size')
+   AND advice_status = 'ON';
+
+
+5.Check buffer cache hit ratio
+
+SQL> SELECT Sum(Decode(a.name, 'consistent gets', a.value, 0)) "Consistent Gets",
+       Sum(Decode(a.name, 'db block gets', a.value, 0)) "DB Block Gets",
+       Sum(Decode(a.name, 'physical reads', a.value, 0)) "Physical Reads",
+       Round(((Sum(Decode(a.name, 'consistent gets', a.value, 0)) +
+         Sum(Decode(a.name, 'db block gets', a.value, 0)) -
+         Sum(Decode(a.name, 'physical reads', a.value, 0))  )/
+           (Sum(Decode(a.name, 'consistent gets', a.value, 0)) +
+             Sum(Decode(a.name, 'db block gets', a.value, 0))))
+             *100,2) "Hit Ratio %"
+FROM   v$sysstat a;
+
+
+6.Check the usage of SGA
+
+SQL> show sga
+
+SQL> show parameter sga_max_size
+
+SQL> select sum(bytes)/1024/1024 " SGA size used in MB" from v$sgastat where name!='free memory';
+
+
+========================================================================
+
+
+--OPATCH lsinventory
+
+$ cd /u01/app/oracle/product/12.2.0.1/db_1/OPatch
+
+$./opatch lsinventory 
+
+$ ./opatch lsinventory > /home/oracle/opatch.txt
+
+--AWR (Automatic Workload Repository) Report
+
+$ sqlplus / as sysdba
+
+SQL> EXEC DBMS_WORKLOAD_REPOSITORY.create_snapshot;
+
+SQL> @?/rdbms/admin/awrrpt
+
+
+--ASH (Active Session History) Report
+
+$ sqlplus / as sysdba
+
+SQL> @?/rdbms/admin/ashrpt
+
+
+========================================================================
+ 
+ 
+
+
+
+
