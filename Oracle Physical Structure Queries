@@ -1,0 +1,213 @@
+---FRA area
+SELECT Name, (SPACE_LIMIT/1024/1024/1024) Space_Limit_GB, SPACE_USED/1024/1024/1024 Space_Used_GB, SPACE_RECLAIMABLE, NUMBER_OF_FILES FROM V$RECOVERY_FILE_DEST;
+
+---Backup taken during last week
+select start_time, END_Time, input_bytes_display, output_bytes_display, time_taken_display ,status 
+from v$rman_backup_job_details where start_time > sysdate -7
+order by start_time desc
+
+---- Blcok Corruption (if any) 
+Select * from v$database_block_corruption;
+
+---- Backup Corruption
+Select * from V$backup_corruption;
+
+
+--- FRA Usage by file types
+select file_type, space_used*percent_space_used/100/1024/1024 || ' %' used,
+space_reclaimable*percent_space_reclaimable/100/1024/1024 reclaimable, frau.number_of_files
+from v$recovery_file_dest rfd, v$flash_recovery_area_usage frau;
+
+
+--- dba_outstanding_alerts type
+select reason, creation_time from dba_outstanding_alerts
+
+
+
+--- tablespace usage
+
+SELECT F.TABLESPACE_NAME,
+ TO_CHAR ((T.TOTAL_SPACE - F.FREE_SPACE),'999,999') "USED(MB)",
+ TO_CHAR (F.FREE_SPACE, '999,999') "FREE(MB)",
+ TO_CHAR (T.TOTAL_SPACE, '999,999') "TOTAL(MB)",
+ TO_CHAR ((ROUND ((F.FREE_SPACE/T.TOTAL_SPACE)*100)),'999')||' %' PER_FREE
+ FROM   (
+ SELECT       TABLESPACE_NAME,
+ ROUND (SUM (BLOCKS*(SELECT VALUE/1024
+ FROM V$PARAMETER
+ WHERE NAME = 'db_block_size')/1024)
+ ) FREE_SPACE
+ FROM DBA_FREE_SPACE
+ GROUP BY TABLESPACE_NAME
+ ) F,
+ (
+ SELECT TABLESPACE_NAME,
+ ROUND (SUM (BYTES/1048576)) TOTAL_SPACE
+ FROM DBA_DATA_FILES
+ GROUP BY TABLESPACE_NAME
+ ) T
+ WHERE F.TABLESPACE_NAME = T.TABLESPACE_NAME
+ AND (ROUND ((F.FREE_SPACE/T.TOTAL_SPACE)*100)) < 30;
+ --AND T.TABLESPACE_NAME='SYSTEM'
+
+
+
+
+--- database files location
+SELECT 'SPFILE ' || VALUE FROM V$PARAMETER WHERE NAME LIKE 'spfile'
+UNION
+SELECT 'CNTRFILE ' || NAME FROM V$CONTROLFILE
+UNION
+SELECT 'DATAFILE ' || FILE_NAME FROM DBA_DATA_FILES
+UNION
+SELECT 'TEMPFILE ' || FILE_NAME FROM DBA_TEMP_FILES
+UNION
+SELECT 'REDOLOG ' || MEMBER FROM V$LOGFILE 
+UNION
+SELECT 'ARCHIVE ' || NAME FROM V$ARCHIVED_LOG WHERE ROWNUM <5 AND NAME IS NOT NULL;
+
+
+
+----- datbase patch or upgrade history
+select * from dba_registry_history;
+
+
+----- blockung session
+SELECT sid, serial#, blocking_session_status, blocking_session,username,schemaname,osuser,machine,logon_time,program,type, module, last_call_et,sql_id
+FROM   v$session
+WHERE  blocking_session IS NOT NULL;
+
+
+------------- archived history
+SELECT TRUNC(COMPLETION_TIME) ARCHIVED_DATE,COUNT(*) ARCHIVED_GEN,
+          SUM (ROUND ( (blocks * block_size) / (1024 * 1024), 2)) SIZE_MB
+      FROM V$ARCHIVED_LOG
+     WHERE COMPLETION_TIME BETWEEN SYSDATE-7 AND SYSDATE
+     GROUP BY TRUNC(COMPLETION_TIME)
+     ORDER BY 1 desc;
+
+
+----------------
+-- database size
+
+
+select (select name from v$database), t.totaloc "TOTAL ALLOCATED(bytes)",
+       (t.totaloc - f.totfree) "TOTAL USED",
+       f.totfree "TOTAL FREE(bytes)",
+       ((t.totaloc - f.totfree)/t.totaloc)*100 "% USED"
+  from (select sum(bytes) totaloc from dba_data_files) t,
+       (select sum(bytes) totfree from dba_free_space) f ;
+       
+       
+       
+------------------------
+--- log file size
+select distinct ' Redo size (MB) '|| Lpad(To_Char(round(bytes/1024/1024)),'16') Status from v$log;
+
+
+
+--------------------------
+--- undo usage over time
+
+select TO_CHAR(MIN(Begin_Time),'DD-MON-YYYY HH24:MI:SS')
+                 "Begin Time",
+    TO_CHAR(MAX(End_Time),'DD-MON-YYYY HH24:MI:SS')
+                 "End Time",
+    SUM(Undoblks)    "Total Undo Blocks Used",
+    SUM(Txncount)    "Total Num Trans Executed",
+    MAX(Maxquerylen)  "Longest Query(in secs)",
+    MAX(Maxconcurrency) "Highest Concurrent TrCount",
+    SUM(Ssolderrcnt),
+    SUM(Nospaceerrcnt)
+from V$UNDOSTAT;
+
+
+
+
+---------------------------
+--- SGA hit ration
+
+SELECT  (1-(pr.value/(dbg.value+cg.value)))*100
+FROM    v$sysstat pr, v$sysstat dbg, v$sysstat cg
+WHERE   pr.name = 'physical reads'
+AND     dbg.name = 'db block gets'
+AND     cg.name = 'consistent gets';
+
+
+
+
+----------------------------
+ --- mount points for datafiles/controlfiles/redologs/archive logs/pfile
+select mount from (
+select distinct substr(FILE_NAME,1,instr(FILE_NAME,'/',2)-1) || '   --for data files' as mount ,'4' from dba_data_files union
+select distinct substr(FILE_NAME,1,instr(FILE_NAME,'/',2)-1) || '   --for temp files'  as mount ,'6'   from dba_temp_files union
+select distinct substr(MEMBER,1,instr(MEMBER,'/',2)-1) || '   --for redo log files ' as mount , '3' from v$logfile union
+select distinct substr(NAME,1,instr(NAME,'/',2)-1) || '   --for control files ' as mount, '2' from v$controlfile union
+select distinct substr(NAME,1,instr(NAME,'/',2)-1) || '   --for archive files ' as mount, '5' FROM V$RECOVERY_FILE_DEST union
+select distinct substr(value,1,instr(value,'/',2)-1) || '   --for pfile files ' as mount, '1'from v$parameter where name = 'spfile'
+order by 2)a
+
+
+
+
+-------------------------------
+Getting SGA Components Size
+
+SELECT 
+   component, 
+   current_size/1024/1024 "CURRENT_SIZE", 
+   min_size/1024/1024 "MIN_SIZE",
+    user_specified_size/1024/1024 "USER_SPECIFIED_SIZE", 
+   last_oper_type "TYPE" 
+FROM v$sga_dynamic_components
+WHERE current_size > 0 
+
+
+
+-----------------------------------
+-- redo log generation per hour
+select  
+  to_char(first_time,'YY-MM-DD') day,
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'00',1,0)),'999') "00",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'01',1,0)),'999') "01",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'02',1,0)),'999') "02",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'03',1,0)),'999') "03",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'04',1,0)),'999') "04",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'05',1,0)),'999') "05",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'06',1,0)),'999') "06",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'07',1,0)),'999') "07",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'08',1,0)),'999') "08",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'09',1,0)),'999') "09",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'10',1,0)),'999') "10",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'11',1,0)),'999') "11",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'12',1,0)),'999') "12",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'13',1,0)),'999') "13",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'14',1,0)),'999') "14",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'15',1,0)),'999') "15",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'16',1,0)),'999') "16",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'17',1,0)),'999') "17",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'18',1,0)),'999') "18",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'19',1,0)),'999') "19",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'20',1,0)),'999') "20",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'21',1,0)),'999') "21",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'22',1,0)),'999') "22",
+  to_char(sum(decode(substr(to_char(first_time,'HH24'),1,2),'23',1,0)),'999') "23",
+  COUNT(*) TOT  
+from v$log_history  
+group by to_char(first_time,'YY-MM-DD')  
+having to_char(first_time,'YY-MM-DD')  > to_char(sysdate - 7,'YY-MM-DD') 
+order by day 
+
+
+
+------------------------------------
+--- Summary of Invalid Objects
+
+
+SELECT
+    owner
+  , object_type
+  , count(*) Count
+FROM dba_objects
+WHERE status <> 'VALID'
+GROUP BY owner, object_type
