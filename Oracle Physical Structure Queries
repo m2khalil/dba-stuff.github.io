@@ -211,3 +211,29 @@ SELECT
 FROM dba_objects
 WHERE status <> 'VALID'
 GROUP BY owner, object_type
+
+
+
+
+-------------------------------------------
+finding block number and file number for an object
+-------------------------------------------
+
+SQL> create table TEST (NAME Varchar2(20) , SAL number);
+Table created.
+
+SQL> insert into Test values ('AMIT',100);
+1 row created.
+
+SQL> commit;
+Commit complete.
+
+SQL> SELECT DBMS_ROWID.ROWID_TO_ABSOLUTE_FNO(ROWID,'SYS','TEST') FNO, DBMS_ROWID.ROWID_BLOCK_NUMBER (ROWID) BLK, NAME,SAL FROM SYS.TEST ;
+
+FNO               BLK                 NAME        SAL
+---------- ---------- -------------------- ----------
+1               86505                 AMIT        100
+
+so here our test table is part of file 1, block # 86505.
+
+
