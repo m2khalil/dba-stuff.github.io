@@ -283,3 +283,20 @@ select scn_to_timestamp(9093044961568) as timestamp from dual;
 select scn_to_timestamp(9093045178548) as timestamp from dual;
 
 
+---------------------------------- Summary View for Redo Logs and Archive -------------------------------------------------
+
+V$DATABASE
+Shows if the database is in ARCHIVELOG or NOARCHIVELOG mode and if MANUAL (archiving mode) has been specified.
+V$ARCHIVED_LOG
+Displays historical archived log information from the control file. If you use a recovery catalog, the RC_ARCHIVED_LOG view contains similar information.
+V$ARCHIVE_DEST
+Describe the current instance, all archive destinations, and the current value, mode, and status of these destinations.
+V$ARCHIVE_PROCESSES
+Displays information about the state of the various archive processes for an instance.
+V$BACKUP_REDOLOG
+Contains information about any backups of archived logs. If you use a recovery catalog, the RC_BACKUP_REDOLOG contains similar information.
+V$LOG
+Displays all redo log groups for the database and indicates which need to be archived.
+V$LOG_HISTORY
+Contains log history information such as which logs have been archived and the SCN range for each archived log.
+
