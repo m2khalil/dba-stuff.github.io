@@ -300,3 +300,30 @@ Displays all redo log groups for the database and indicates which need to be arc
 V$LOG_HISTORY
 Contains log history information such as which logs have been archived and the SCN range for each archived log.
 
+You can get the archivelog sequence number containing a specific scn.
+---------------------------------------
+select sequence# from v$archived_log where &scn between FIRST_CHANGE# and NEXT_CHANGE#;
+
+
+Getting Current SCN form database.
+---------------------------------------
+SQL>select current_scn from v$database;
+current_scn
+--------------
+4426538972
+
+
+Getting timestamp from scn.
+---------------------------------------
+SQL> select scn_to_timestamp(4426538972) as timestamp from dual;
+timestamp
+-------------------------------
+23-SEP-18 03.22.42.000000000 PM
+
+
+Getting SCN from datetime
+---------------------------------------
+SQL> select timestamp_to_scn(to_timestamp('23/09/2018 15:22:44','DD/MM/YYYY HH24:MI:SS')) as scn from dual;
+SCN
+----------
+4426538972
