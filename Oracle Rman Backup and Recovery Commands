@@ -137,3 +137,34 @@ Get schema report, this is good to see if all the files are on their required pa
 --------------------------------------------------------------------------
 
 RMAN>  report schema;
+
+
+
+
+You can get the archivelog sequence number containing a specific scn.
+---------------------------------------
+select sequence# from v$archived_log where &scn between FIRST_CHANGE# and NEXT_CHANGE#;
+
+
+Getting Current SCN form database.
+---------------------------------------
+SQL>select current_scn from v$database;
+current_scn
+--------------
+4426538972
+
+
+Getting timestamp from scn.
+---------------------------------------
+SQL> select scn_to_timestamp(4426538972) as timestamp from dual;
+timestamp
+-------------------------------
+23-SEP-18 03.22.42.000000000 PM
+
+
+Getting SCN from datetime
+---------------------------------------
+SQL> select timestamp_to_scn(to_timestamp('23/09/2018 15:22:44','DD/MM/YYYY HH24:MI:SS')) as scn from dual;
+SCN
+----------
+4426538972
