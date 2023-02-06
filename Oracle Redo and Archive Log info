@@ -1,0 +1,285 @@
+--------------------------------------
+Archive Logs Information
+--------------------------------------
+
+common view for redo and archive logs
+
+V$DATABASE
+Shows if the database is in ARCHIVELOG or NOARCHIVELOG mode and if MANUAL (archiving mode) has been specified.
+V$ARCHIVED_LOG
+Displays historical archived log information from the control file. If you use a recovery catalog, the RC_ARCHIVED_LOG view contains similar information.
+V$ARCHIVE_DEST
+Describe the current instance, all archive destinations, and the current value, mode, and status of these destinations.
+V$ARCHIVE_PROCESSES
+Displays information about the state of the various archive processes for an instance.
+V$BACKUP_REDOLOG
+Contains information about any backups of archived logs. If you use a recovery catalog, the RC_BACKUP_REDOLOG contains similar information.
+V$LOG
+Displays all redo log groups for the database and indicates which need to be archived.
+V$LOG_HISTORY
+Contains log history information such as which logs have been archived and the SCN range for each archived log.
+
+------------------------------------------------
+1). How to check archive log mode in oracle
+SELECT LOG_MODE FROM SYS.V$DATABASE;
+or
+SQL> ARCHIVE LOG LIST
+
+
+------------------------------------------------
+2). How to check online redo log file status
+SQL> select group#, sequence#, bytes, members, status from v$log;
+
+
+------------------------------------------------
+3). How to check all members of a group
+SQL> select * from v$logfile;
+
+
+
+------------------------------------------------
+4). how to check archive log generation time in oracle
+select sequence#, name,creator, to_char(first_time,'dd-mm-yyyy hh24:mi:ss'), to_char(completion_time,'dd-mm-yyyy hh24:mi:ss')
+from v$archived_log
+where first_time > sysdate- 7
+order by 1
+
+
+------------------------------------------------
+5). how to check archive log location in oracle
+SQL> ARCHIVE LOG LIST
+Database log mode Archive Mode
+Automatic archival Enabled
+Archive destination +FLASH
+Oldest online log sequence 21160
+Next log sequence to archive 21165
+Current log sequence 21165
+
+or
+select destination,STATUS from v$archive_dest where statuS='VALID';
+
+or
+Show parameter db_recovery_file_dest
+
+
+
+------------------------------------------------
+6). How to find archive log history
+V$log_history is the view that can be used to find the latest history of archive log in the system
+The below query tells us the amount of redo generated per day from history
+
+
+SELECT A.*,
+Round(A.Count#*B.AVG#/1024/1024) Daily_Avg_Mb
+FROM
+(
+SELECT
+To_Char(First_Time,'YYYY-MM-DD') DAY,
+Count(1) Count#,
+Min(RECID) Min#,
+Max(RECID) Max#
+FROM
+v$log_history
+GROUP
+BY To_Char(First_Time,'YYYY-MM-DD')
+ORDER
+BY 1 DESC
+) A,
+(
+SELECT
+Avg(BYTES) AVG#,
+Count(1) Count#,
+Max(BYTES) Max_Bytes,
+Min(BYTES) Min_Bytes
+FROM
+v$log
+) B;
+
+
+
+
+For Hourly distribution per day of archive generated from the history
+
+
+SET LINESIZE 150
+set heading on
+column "00:00" format 9999
+column "01:00" format 9999
+column "02:00" format 9999
+column "03:00" format 9999
+column "04:00" format 9999
+column "05:00" format 9999
+column "06:00" format 9999
+column "07:00" format 9999
+column "08:00" format 9999
+column "09:00" format 9999
+column "10:00" format 9999
+column "11:00" format 9999
+column "12:00" format 9999
+column "13:00" format 9999
+column "14:00" format 9999
+column "15:00" format 9999
+column "16:00" format 9999
+column "17:00" format 9999
+column "18:00" format 9999
+column "19:00" format 9999
+column "20:00" format 9999
+column "21:00" format 9999
+column "22:00" format 9999
+column "23:00" format 9999
+SELECT TO_CHAR(FIRST_TIME, 'DD/MM') AS "DAY"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '00', 1, 0), '99')) "00:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '01', 1, 0), '99')) "01:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '02', 1, 0), '99')) "02:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '03', 1, 0), '99')) "03:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '04', 1, 0), '99')) "04:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '05', 1, 0), '99')) "05:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '06', 1, 0), '99')) "06:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '07', 1, 0), '99')) "07:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '08', 1, 0), '99')) "08:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '09', 1, 0), '99')) "09:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '10', 1, 0), '99')) "10:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '11', 1, 0), '99')) "11:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '12', 1, 0), '99')) "12:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '13', 1, 0), '99')) "13:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '14', 1, 0), '99')) "14:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '15', 1, 0), '99')) "15:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '16', 1, 0), '99')) "16:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '17', 1, 0), '99')) "17:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '18', 1, 0), '99')) "18:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '19', 1, 0), '99')) "19:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '20', 1, 0), '99')) "20:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '21', 1, 0), '99')) "21:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '22', 1, 0), '99')) "22:00"
+, SUM(TO_NUMBER(DECODE(TO_CHAR(FIRST_TIME, 'HH24'), '23', 1, 0), '99')) "23:00"
+FROM V$LOG_HISTORY WHERE extract(year FROM FIRST_TIME) = extract(year FROM sysdate)
+GROUP BY TO_CHAR(FIRST_TIME, 'DD/MM') order by TO_CHAR(FIRST_TIME, 'DD/MM');
+
+
+For just Current day data
+
+set linesize 200
+set trimspool on
+set feedback off
+Column 00 format 999
+Column 01 format 999
+Column 02 format 999
+Column 03 format 999
+Column 04 format 999
+Column 05 format 999
+Column 06 format 999
+Column 07 format 999
+Column 08 format 999
+Column 09 format 999
+Column 10 format 999
+Column 11 format 999
+Column 12 format 999
+Column 13 format 999
+Column 14 format 999
+Column 15 format 999
+Column 16 format 999
+Column 17 format 999
+Column 18 format 999
+Column 19 format 999
+Column 20 format 999
+Column 21 format 999
+Column 22 format 999
+Column 23 format 999
+select trunc(first_time) AS Day,
+sum(DECODE(to_char(first_time, ‘HH24′), ’00’, 1, 0)) AS “00”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’01’, 1, 0)) AS “01”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’02’, 1, 0)) AS “02”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’03’, 1, 0)) AS “03”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’04’, 1, 0)) AS “04”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’05’, 1, 0)) AS “05”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’06’, 1, 0)) AS “06”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’07’, 1, 0)) AS “07”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’08’, 1, 0)) AS “08”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’09’, 1, 0)) AS “09”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’10’, 1, 0)) AS “10”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’11’, 1, 0)) AS “11”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’12’, 1, 0)) AS “12”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’13’, 1, 0)) AS “13”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’14’, 1, 0)) AS “14”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’15’, 1, 0)) AS “15”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’16’, 1, 0)) AS “16”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’17’, 1, 0)) AS “17”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’18’, 1, 0)) AS “18”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’19’, 1, 0)) AS “19”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’20’, 1, 0)) AS “20”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’21’, 1, 0)) AS “21”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’22’, 1, 0)) AS “22”,
+sum(DECODE(to_char(first_time, ‘HH24′), ’13’, 1, 0)) AS “23”
+FROM v$log_history
+WHERE trunc(FIRST_TIME) = trunc(sysdate – 1)
+GROUP BY trunc(first_time);
+
+------------------------------------------------
+7). how to check archive log size in oracle
+The archive log size is the same as the redo log size.
+We can check the archive log size generated per day using the below query
+
+select trunc(COMPLETION_TIME) TIME, SUM(BLOCKS * BLOCK_SIZE)/1024/1024/1024 SIZE_GB from V$ARCHIVED_LOG group by trunc (COMPLETION_TIME) order by 1;
+
+We can check the archive log size generated per hr using the below query
+SQL> alter session set nls_date_format = 'YYYY-MM-DD HH24';
+SQL> select trunc(COMPLETION_TIME,'HH24') TIME, SUM(BLOCKS * BLOCK_SIZE)/1024/1024/1024 SIZE_GB from V$ARCHIVED_LOG group by trunc (COMPLETION_TIME,'HH24') order by 1;
+
+
+------------------------------------------------
+8). how to find archive log sequence number in oracle
+select sequence#, name,creator, to_char(first_time,'dd-mm-yyyy hh24:mi:ss'), first_change#, next_change#
+from v$archived_log
+where first_time > sysdate- 7
+order by 1
+If you want to find the sequence based on the SCN no
+
+select sequence#, name,creator, to_char(first_time,'dd-mm-yyyy hh24:mi:ss'), first_change#, next_change#
+from v$archived_log
+where <SCN no> between first_change# and next_change#;
+
+
+9). finding generation time of a archive log
+there are two ways
+a). from alert log file
+b). checking via logminer view
+
+steps:
+Added miner as follows:
+exec sys.dbms_logmnr.add_logfile ('/oracle/SM3/SM3arch1_2311_595797259.dbf')
+exec sys.dbms_logmnr.add_logfile ('/oracle/SM3/SM3arch1_2312_595797259.dbf')
+
+Then execut the following sql:
+select LOG_ID, FILENAME, LOW_TIME, HIGH_TIME from V$LOGMNR_LOGS ;
+
+This resulting in these entries:
+2311 /oracle/SM3/SM3arch1_2311_595797259.dbf 2007/01/17:13:19:31 2007/01/17:13:31:00
+2312 /oracle/SM3/SM3arch1_2312_595797259.dbf 2007/01/17:13:31:00 2007/01/17:13:31:41
+The HIGH_TIME matches the times in the alert_log.
+So it looks like that we can either user the log miner utility or view the alert log to find the timestamp.
+
+10). swtiching log file and taking archive log of current
+
+alter system swith logfile
+alter system archive log current;
+
+
+11). checking arhive log generation time (another view)
+
+select d.name, a.sequence#, 
+ to_char(first_time, 'DD-MON-YYYY HH24:MI:SS') "FIRST_TIME", 
+ to_char(next_time, 'DD-MON-YYYY HH24:MI:SS') "NEXT_TIME", 
+ to_char(completion_time, 'DD-MON-YYYY HH24:MI:SS') "COMPLETION_TIME" 
+ from v$archived_log a, v$database d, 
+ ( select max(sequence#) sequence# from v$log where archived = 'YES' ) l 
+ where a.sequence# between l.sequence#-10 and l.sequence# 
+
+
+12). Getting scn_to_timespamp from archivelogs view
+select * from V$ARCHIVED_LOG where sequence# >= 107982 and sequence# <=107986
+
+Get first_change# and next_change# and put this in the scn_to_timestamp function
+select scn_to_timestamp(9093044961568) as timestamp from dual;
+select scn_to_timestamp(9093045178548) as timestamp from dual;
+
+
